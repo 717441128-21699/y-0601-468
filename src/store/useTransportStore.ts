@@ -8,10 +8,11 @@ import {
   TransportRoute,
   TransportStatistics,
   TransferOrderStatusType,
-  TimelineEvent
+  TimelineEvent,
+  RouteInfo
 } from '@/types'
 import { db } from '@/db'
-import { generateId, generateOrderNo, smartDispatch } from '@/utils/algorithm'
+import { generateId, generateOrderNo, smartDispatch, calculateDistance } from '@/utils/algorithm'
 
 interface TransportState {
   vehicles: Vehicle[]
@@ -43,6 +44,7 @@ interface TransportState {
 
   getOrderById: (id: string) => TransferOrder | undefined
   getVehicleById: (id: string) => Vehicle | undefined
+  reassignVehicle: (orderId: string, newVehicleId: string, newDriverId: string, operatorId?: string) => Promise<void>
 }
 
 export const useTransportStore = create<TransportState>()((set, get) => ({
@@ -346,6 +348,83 @@ export const useTransportStore = create<TransportState>()((set, get) => ({
     }
 
     await get().loadOrders()
+  },
+
+  reassignVehicle: async (orderId, newVehicleId, newDriverId, operatorId) => {
+    const now = new Date().toISOString()
+    const order = await db.transferOrders.get(orderId)
+    if (!order) throw new Error('订单不存在')
+
+    if (!['PENDING_AUDIT', 'APPROVED'].includes(order.status)) {
+      throw new Error('当前订单状态不允许改派')
+    }
+
+    const newVehicle = await db.vehicles.get(newVehicleId)
+    const oldVehicle = order.vehicleId ? await db.vehicles.get(order.vehicleId) : undefined
+    const newDriver = await db.drivers.get(newDriverId)
+    const users = await db.users.toArray()
+    const operator = users.find(u => u.id === operatorId)
+    const institutions = await db.medicalInstitutions.toArray()
+    const factories = await db.disposalFactories.toArray()
+
+    const institution = institutions.find(i => i.id === order.institutionId)
+    const factory = factories.find(f => f.id === order.factoryId)
+
+    let newRoute: RouteInfo | undefined = order.route
+    if (newVehicle && institution && factory) {
+      const vehicleStart = { lat: newVehicle.currentLat || 0, lng: newVehicle.currentLng || 0 }
+      const institutionPoint = { lat: institution.lat || 0, lng: institution.lng || 0 }
+      const factoryPoint = { lat: factory.lat || 0, lng: factory.lng || 0 }
+
+      const avgSpeed = 45 * 1000 / 60
+      const loadingTime = 20
+      const unloadingTime = 15
+
+      const distanceV2I = calculateDistance(vehicleStart, institutionPoint)
+      const distanceI2F = calculateDistance(institutionPoint, factoryPoint)
+      const timeV2I = Math.max(1, Math.floor(distanceV2I / avgSpeed))
+      const timeI2F = Math.max(1, Math.floor(distanceI2F / avgSpeed))
+
+      newRoute = {
+        vehicleToInstitution: { distance: distanceV2I, estimatedTime: timeV2I },
+        institutionToFactory: { distance: distanceI2F, estimatedTime: timeI2F },
+        totalDistance: distanceV2I + distanceI2F,
+        totalEstimatedTime: timeV2I + loadingTime + timeI2F + unloadingTime,
+        waypoints: {
+          vehicleStart,
+          institution: { ...institutionPoint, name: institution.name },
+          factory: { ...factoryPoint, name: factory.name }
+        }
+      }
+    }
+
+    const oldPlate = oldVehicle?.plateNo || '未指定'
+    const newPlate = newVehicle?.plateNo || '未指定'
+    const newDriverName = newDriver?.name || '未指定'
+
+    const newTimeline = [
+      ...order.timeline,
+      {
+        status: order.status,
+        title: '改派车辆和司机',
+        time: now,
+        operator: operator?.name || '调度员',
+        description: `车辆由 ${oldPlate} 改派为 ${newPlate}，司机调整为 ${newDriverName}`
+      }
+    ]
+
+    await db.transaction('rw', db.transferOrders, db.vehicles, async () => {
+      await db.transferOrders.update(orderId, {
+        vehicleId: newVehicleId,
+        driverId: newDriverId,
+        route: newRoute,
+        timeline: newTimeline,
+        updatedAt: now
+      })
+    })
+
+    await get().loadOrders()
+    await get().loadVehicles()
   },
 
   updateVehicleStatus: async (vehicleId, status) => {

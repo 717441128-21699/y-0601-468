@@ -44,7 +44,8 @@ import {
 import {
   TransferOrderStatusLabel,
   WasteCategoryLabel,
-  WasteCategoryColor
+  WasteCategoryColor,
+  VehicleStatusLabel
 } from '@/types/common'
 import { formatDateTime, formatWeight, formatDistance, formatDuration } from '@/utils/format'
 
@@ -132,7 +133,8 @@ export function TransportDispatch() {
     rejectOrder,
     startTransport,
     completeTransport,
-    completeDisposal
+    completeDisposal,
+    reassignVehicle
   } = useTransportStore()
 
   const {
@@ -170,6 +172,9 @@ export function TransportDispatch() {
 
   const [loadingSuggestions, setLoadingSuggestions] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [reassignModalOpen, setReassignModalOpen] = useState(false)
+  const [reassignVehicleId, setReassignVehicleId] = useState<string>('')
+  const [reassignDriverId, setReassignDriverId] = useState<string>('')
 
   useEffect(() => {
     loadAllData()
@@ -350,6 +355,25 @@ export function TransportDispatch() {
       await refreshSelectedOrder()
     } catch (e) {
       console.error('Failed to complete disposal:', e)
+    }
+  }
+
+  const openReassignModal = () => {
+    if (!selectedOrder) return
+    setReassignVehicleId(selectedOrder.vehicleId)
+    setReassignDriverId(selectedOrder.driverId)
+    setReassignModalOpen(true)
+  }
+
+  const handleReassign = async () => {
+    if (!selectedOrder || !reassignVehicleId || !reassignDriverId) return
+    try {
+      await reassignVehicle(selectedOrder.id, reassignVehicleId, reassignDriverId, currentUser?.id)
+      setReassignModalOpen(false)
+      await refreshSelectedOrder()
+    } catch (e) {
+      console.error('Reassign failed:', e)
+      alert(e instanceof Error ? e.message : '改派失败')
     }
   }
 
@@ -1070,14 +1094,46 @@ export function TransportDispatch() {
                   <Truck className="w-5 h-5 text-primary-400" />
                   <p className="font-medium text-primary-400">审批已通过，可开始执行运输</p>
                 </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    leftIcon={<Truck className="w-4 h-4" />}
+                    onClick={handleStartTransport}
+                  >
+                    开始运输
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    leftIcon={<Route className="w-4 h-4" />}
+                    onClick={openReassignModal}
+                  >
+                    改派车辆/司机
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {selectedOrder.status === 'PENDING_AUDIT' && canApprove && (
+              <div className="flex gap-2 pb-2">
                 <Button
-                  variant="primary"
+                  variant="secondary"
                   size="sm"
-                  leftIcon={<Truck className="w-4 h-4" />}
-                  onClick={handleStartTransport}
+                  leftIcon={<Route className="w-4 h-4" />}
+                  onClick={openReassignModal}
                 >
-                  开始运输
+                  改派车辆/司机
                 </Button>
+              </div>
+            )}
+
+            {['IN_TRANSIT', 'ARRIVED', 'COMPLETED'].includes(selectedOrder.status) && (
+              <div className="p-4 bg-app-bg-lighter border border-app-border rounded-lg">
+                <p className="text-xs text-app-text-muted flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-warning-400" />
+                  订单已进入执行阶段，车辆和司机已锁定不允许改派
+                </p>
               </div>
             )}
 
@@ -1379,6 +1435,114 @@ export function TransportDispatch() {
           </div>
         )}
       </Drawer>
+
+      <Modal
+        isOpen={reassignModalOpen}
+        onClose={() => setReassignModalOpen(false)}
+        title="改派车辆和司机"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setReassignModalOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleReassign}
+              disabled={!reassignVehicleId || !reassignDriverId || submitting}
+              leftIcon={<Route className="w-4 h-4" />}
+            >
+              确认改派
+            </Button>
+          </div>
+        }
+      >
+        {selectedOrder && (
+          <div className="space-y-4">
+            <div className="p-3 bg-app-bg-lighter rounded-lg border border-app-border">
+              <p className="text-sm text-app-text">
+                订单号：<span className="font-mono text-primary-400 font-medium">{selectedOrder.orderNo}</span>
+              </p>
+              <p className="text-xs text-app-text-muted mt-1">
+                当前状态：{TransferOrderStatusLabel[selectedOrder.status]}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-app-text-secondary mb-2">
+                当前车辆
+              </label>
+              <div className="p-3 bg-app-bg rounded-lg border border-app-border">
+                <p className="text-app-text">
+                  {vehicles.find(v => v.id === selectedOrder.vehicleId)?.plateNo || '未指定'}
+                </p>
+                <p className="text-xs text-app-text-muted mt-1">
+                  当前司机：{drivers.find(d => d.id === selectedOrder.driverId)?.name || '未指定'}
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-app-text-secondary mb-2">
+                选择新车辆 <span className="text-danger-400">*</span>
+              </label>
+              <select
+                className="w-full bg-app-bg border border-app-border rounded-lg px-3 py-2 text-app-text focus:outline-none focus:ring-2 focus:ring-primary-500"
+                value={reassignVehicleId}
+                onChange={(e) => {
+                  setReassignVehicleId(e.target.value)
+                  const vehicle = vehicles.find(v => v.id === e.target.value)
+                  if (vehicle?.driverId) {
+                    setReassignDriverId(vehicle.driverId)
+                  }
+                }}
+              >
+                <option value="">请选择车辆</option>
+                {vehicles
+                  .filter(v => ['IDLE', 'AVAILABLE'].includes(v.status) || v.id === selectedOrder.vehicleId)
+                  .map((v) => (
+                    <option key={v.id} value={v.id} disabled={!['IDLE', 'AVAILABLE'].includes(v.status) && v.id !== selectedOrder.vehicleId}>
+                      {v.plateNo} - {VehicleStatusLabel[v.status]}
+                      ({v.currentLat ? '定位在线' : '定位离线'})
+                      {v.id === selectedOrder.vehicleId ? ' - 当前车辆' : ''}
+                    </option>
+                  ))
+                }
+              </select>
+              <p className="text-xs text-app-text-muted mt-1">
+                仅显示可调用（空闲/可用）的车辆
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-app-text-secondary mb-2">
+                选择新司机 <span className="text-danger-400">*</span>
+              </label>
+              <select
+                className="w-full bg-app-bg border border-app-border rounded-lg px-3 py-2 text-app-text focus:outline-none focus:ring-2 focus:ring-primary-500"
+                value={reassignDriverId}
+                onChange={(e) => setReassignDriverId(e.target.value)}
+              >
+                <option value="">请选择司机</option>
+                {drivers.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} - {d.licenseType || '驾照'}
+                    {d.id === selectedOrder.driverId ? ' - 当前司机' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {(reassignVehicleId && reassignVehicleId !== selectedOrder.vehicleId) && (
+              <div className="p-3 bg-primary-500/10 border border-primary-500/30 rounded-lg">
+                <p className="text-xs text-primary-400 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  改派后路线将根据新车辆当前位置重新计算，订单详情、路线信息和运输监控都将同步更新
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
