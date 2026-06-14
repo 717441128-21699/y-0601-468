@@ -453,6 +453,74 @@ export function generateMockTransferOrders(
     const arrivalTime = status === 'ARRIVED' || status === 'COMPLETED' ? new Date(new Date(departureTime || applyTime).getTime() + randomInt(60, 240) * 60 * 1000).toISOString() : undefined
     const disposalTime = status === 'COMPLETED' ? new Date(new Date(arrivalTime || applyTime).getTime() + randomInt(60, 180) * 60 * 1000).toISOString() : undefined
 
+    const timeline: any[] = [
+      {
+        status: status === 'DRAFT' ? 'DRAFT' : 'PENDING_AUDIT',
+        title: status === 'DRAFT' ? '创建草稿' : '提交转运申请',
+        time: applyTime,
+        operator: applyUser?.name || '未知用户',
+        description: `申请转运 ${items.length} 条废物记录，总重量 ${totalWeight.toFixed(2)}kg`
+      }
+    ]
+    if (auditTime) {
+      if (status === 'REJECTED') {
+        timeline.push({
+          status: 'REJECTED',
+          title: '审批拒绝',
+          time: auditTime,
+          operator: auditUser?.name || '审核员',
+          description: '资料不全，请补充'
+        })
+      } else {
+        timeline.push({
+          status: 'APPROVED',
+          title: '审批通过',
+          time: auditTime,
+          operator: auditUser?.name || '审核员',
+          description: '同意转运'
+        })
+      }
+    }
+    if (departureTime) {
+      timeline.push({
+        status: 'IN_TRANSIT',
+        title: '开始运输',
+        time: departureTime,
+        operator: driver?.name || '驾驶员',
+        description: `车辆 ${vehicle?.plateNo || ''} 已出发前往 ${institution?.name || '医疗机构'}`
+      })
+    }
+    if (arrivalTime) {
+      timeline.push({
+        status: 'ARRIVED',
+        title: '到达处置厂',
+        time: arrivalTime,
+        operator: driver?.name || '驾驶员',
+        description: `已安全到达 ${factory?.name || '处置厂'}`
+      })
+    }
+    if (disposalTime) {
+      timeline.push({
+        status: 'COMPLETED',
+        title: '处置完成',
+        time: disposalTime,
+        operator: '处置人员',
+        description: '废物已完成无害化处置'
+      })
+    }
+
+    const route = status !== 'DRAFT' ? {
+      vehicleToInstitution: { distance: randomInt(5000, 20000), estimatedTime: randomInt(10, 30) },
+      institutionToFactory: { distance: randomInt(10000, 40000), estimatedTime: randomInt(20, 60) },
+      totalDistance: randomInt(15000, 60000),
+      totalEstimatedTime: randomInt(60, 140),
+      waypoints: {
+        vehicleStart: { lat: vehicle.currentLat || 30.6, lng: vehicle.currentLng || 104.0 },
+        institution: { lat: institution.lat || 30.65, lng: institution.lng || 104.05, name: institution.name },
+        factory: { lat: factory.lat || 30.7, lng: factory.lng || 104.1, name: factory.name }
+      }
+    } : undefined
+
     orders.push({
       id: generateId(),
       orderNo: generateOrderNo(),
@@ -472,6 +540,8 @@ export function generateMockTransferOrders(
       departureTime,
       arrivalTime,
       disposalTime,
+      timeline,
+      route,
       remarks: randomInt(0, 1) === 1 ? '请注意运输过程中的温度控制' : undefined,
       createdAt: applyTime,
       updatedAt: randomDate(7)

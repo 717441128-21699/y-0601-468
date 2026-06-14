@@ -62,6 +62,8 @@ export interface TransferOrder extends BaseEntity {
   arrivalTime?: string
   disposalTime?: string
   remarks?: string
+  route?: RouteInfo
+  timeline: TimelineEvent[]
 }
 
 export interface TransferOrderApplication {
@@ -74,6 +76,18 @@ export interface TransferOrderApplication {
   remarks?: string
 }
 
+export interface RouteInfo {
+  vehicleToInstitution: { distance: number; estimatedTime: number }
+  institutionToFactory: { distance: number; estimatedTime: number }
+  totalDistance: number
+  totalEstimatedTime: number
+  waypoints: {
+    vehicleStart: { lat: number; lng: number }
+    institution: { lat: number; lng: number; name: string }
+    factory: { lat: number; lng: number; name: string }
+  }
+}
+
 export interface DispatchSuggestion {
   vehicleId: string
   vehiclePlateNo: string
@@ -83,6 +97,15 @@ export interface DispatchSuggestion {
   distance: number
   priorityScore: number
   reason: string
+  route: RouteInfo
+}
+
+export interface TimelineEvent {
+  status: TransferOrderStatusType | string
+  title: string
+  time: string
+  operator?: string
+  description?: string
 }
 
 export interface TransportStatistics {

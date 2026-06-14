@@ -128,7 +128,10 @@ export function TransportDispatch() {
     getDispatchSuggestions,
     createTransferOrder,
     approveOrder,
-    rejectOrder
+    rejectOrder,
+    startTransport,
+    completeTransport,
+    completeDisposal
   } = useTransportStore()
 
   const {
@@ -311,6 +314,39 @@ export function TransportDispatch() {
     setDetailDrawerOpen(true)
   }
 
+  const handleStartTransport = async () => {
+    if (!selectedOrder) return
+    try {
+      await startTransport(selectedOrder.id)
+      const updated = orders.find((o) => o.id === selectedOrder.id)
+      if (updated) setSelectedOrder(updated)
+    } catch (e) {
+      console.error('Failed to start transport:', e)
+    }
+  }
+
+  const handleCompleteTransport = async () => {
+    if (!selectedOrder) return
+    try {
+      await completeTransport(selectedOrder.id)
+      const updated = orders.find((o) => o.id === selectedOrder.id)
+      if (updated) setSelectedOrder(updated)
+    } catch (e) {
+      console.error('Failed to complete transport:', e)
+    }
+  }
+
+  const handleCompleteDisposal = async () => {
+    if (!selectedOrder) return
+    try {
+      await completeDisposal(selectedOrder.id)
+      const updated = orders.find((o) => o.id === selectedOrder.id)
+      if (updated) setSelectedOrder(updated)
+    } catch (e) {
+      console.error('Failed to complete disposal:', e)
+    }
+  }
+
   const toggleWasteRecord = (id: string) => {
     setSelectedWasteRecords((prev) =>
       prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]
@@ -337,7 +373,10 @@ export function TransportDispatch() {
     return drivers.find((d) => d.id === id)?.name || '未知'
   }
 
-  const canApprove = currentUser?.role === 'ENVIRONMENTAL_AUDITOR' || currentUser?.role === 'SYSTEM_ADMIN'
+  const canApprove = ['REGULATOR', 'ENVIRONMENTAL_AUDITOR', 'SYSTEM_ADMIN', 'ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role || '')
+  const canStartTransport = ['TRANSPORT', 'TRANSPORT_DISPATCHER', 'SYSTEM_ADMIN', 'ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role || '')
+  const canCompleteTransport = ['TRANSPORT', 'TRANSPORT_DISPATCHER', 'SYSTEM_ADMIN', 'ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role || '')
+  const canCompleteDisposal = ['DISPOSAL', 'DISPOSAL_OPERATOR', 'SYSTEM_ADMIN', 'ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role || '')
 
   const columns = [
     {
@@ -986,6 +1025,90 @@ export function TransportDispatch() {
               </Badge>
             </div>
 
+            {selectedOrder.status === 'PENDING_AUDIT' && canApprove && (
+              <div className="p-4 bg-warning-500/10 border border-warning-500/30 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertCircle className="w-5 h-5 text-warning-400" />
+                  <p className="font-medium text-warning-400">待审批处理</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="success"
+                    size="sm"
+                    leftIcon={<Check className="w-4 h-4" />}
+                    onClick={() => {
+                      setAuditOpinion('同意转运')
+                      openApproveModal(selectedOrder)
+                    }}
+                  >
+                    批准
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    leftIcon={<XCircle className="w-4 h-4" />}
+                    onClick={() => {
+                      setAuditOpinion('')
+                      openApproveModal(selectedOrder)
+                    }}
+                  >
+                    拒绝
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {selectedOrder.status === 'APPROVED' && canStartTransport && (
+              <div className="p-4 bg-primary-500/10 border border-primary-500/30 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <Truck className="w-5 h-5 text-primary-400" />
+                  <p className="font-medium text-primary-400">审批已通过，可开始执行运输</p>
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  leftIcon={<Truck className="w-4 h-4" />}
+                  onClick={handleStartTransport}
+                >
+                  开始运输
+                </Button>
+              </div>
+            )}
+
+            {selectedOrder.status === 'IN_TRANSIT' && canCompleteTransport && (
+              <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <MapPin className="w-5 h-5 text-blue-400" />
+                  <p className="font-medium text-blue-400">车辆运输中，到达后可确认</p>
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  leftIcon={<CheckCircle2 className="w-4 h-4" />}
+                  onClick={handleCompleteTransport}
+                >
+                  确认到达处置厂
+                </Button>
+              </div>
+            )}
+
+            {selectedOrder.status === 'ARRIVED' && canCompleteDisposal && (
+              <div className="p-4 bg-success-500/10 border border-success-500/30 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <CheckCircle2 className="w-5 h-5 text-success-400" />
+                  <p className="font-medium text-success-400">已到达处置厂，可完成处置</p>
+                </div>
+                <Button
+                  variant="success"
+                  size="sm"
+                  leftIcon={<Check className="w-4 h-4" />}
+                  onClick={handleCompleteDisposal}
+                >
+                  完成处置
+                </Button>
+              </div>
+            )}
+
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-app-text flex items-center gap-2">
                 <Package className="w-4 h-4 text-primary-400" />
@@ -1018,6 +1141,93 @@ export function TransportDispatch() {
                 </div>
               </div>
             </div>
+
+            {selectedOrder.route && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-app-text flex items-center gap-2">
+                  <Route className="w-4 h-4 text-primary-400" />
+                  运输路线规划
+                </h3>
+                <div className="p-4 bg-app-bg rounded-lg border border-app-border space-y-4">
+                  <div className="grid grid-cols-2 gap-3 mb-2">
+                    <div className="p-2 bg-app-bg-lighter rounded">
+                      <p className="text-xs text-app-text-muted mb-0.5">总距离</p>
+                      <p className="text-sm font-semibold text-primary-400">
+                        {formatDistance(selectedOrder.route.totalDistance)}
+                      </p>
+                    </div>
+                    <div className="p-2 bg-app-bg-lighter rounded">
+                      <p className="text-xs text-app-text-muted mb-0.5">预计总时长</p>
+                      <p className="text-sm font-semibold text-primary-400">
+                        {formatDuration(selectedOrder.route.totalEstimatedTime)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="relative pl-8">
+                    <div className="absolute left-3 top-2 bottom-2 w-0.5 bg-primary-500/30" />
+                    <div className="space-y-4">
+                      <div className="relative">
+                        <div className="absolute -left-8 w-6 h-6 rounded-full bg-primary-500 flex items-center justify-center text-xs text-white font-bold">1</div>
+                        <div className="p-3 bg-app-bg-lighter rounded border border-app-border">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium text-app-text">车辆当前位置</p>
+                              <p className="text-xs text-app-text-muted mt-0.5">
+                                {selectedOrder.route.waypoints.vehicleStart.lat.toFixed(5)}, {selectedOrder.route.waypoints.vehicleStart.lng.toFixed(5)}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="pl-2 flex items-center gap-2 text-xs text-app-text-muted">
+                        <MapPin className="w-3 h-3" />
+                        <span>{formatDistance(selectedOrder.route.vehicleToInstitution.distance)}</span>
+                        <span>·</span>
+                        <span>约 {formatDuration(selectedOrder.route.vehicleToInstitution.estimatedTime)}</span>
+                      </div>
+                      <div className="relative">
+                        <div className="absolute -left-8 w-6 h-6 rounded-full bg-warning-500 flex items-center justify-center text-xs text-white font-bold">2</div>
+                        <div className="p-3 bg-app-bg-lighter rounded border border-app-border">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium text-app-text">医疗机构（装货）</p>
+                              <p className="text-xs text-app-text-muted mt-0.5">
+                                {selectedOrder.route.waypoints.institution.name}
+                              </p>
+                              <p className="text-xs text-primary-400 mt-0.5">
+                                预计装货时间约 20 分钟
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="pl-2 flex items-center gap-2 text-xs text-app-text-muted">
+                        <MapPin className="w-3 h-3" />
+                        <span>{formatDistance(selectedOrder.route.institutionToFactory.distance)}</span>
+                        <span>·</span>
+                        <span>约 {formatDuration(selectedOrder.route.institutionToFactory.estimatedTime)}</span>
+                      </div>
+                      <div className="relative">
+                        <div className="absolute -left-8 w-6 h-6 rounded-full bg-success-500 flex items-center justify-center text-xs text-white font-bold">3</div>
+                        <div className="p-3 bg-app-bg-lighter rounded border border-app-border">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium text-app-text">处置厂（卸货）</p>
+                              <p className="text-xs text-app-text-muted mt-0.5">
+                                {selectedOrder.route.waypoints.factory.name}
+                              </p>
+                              <p className="text-xs text-success-400 mt-0.5">
+                                预计卸货时间约 15 分钟
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-app-text flex items-center gap-2">
@@ -1062,102 +1272,104 @@ export function TransportDispatch() {
 
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-app-text flex items-center gap-2">
-                <Route className="w-4 h-4 text-primary-400" />
-                调度轨迹
+                <Clock className="w-4 h-4 text-primary-400" />
+                状态时间线
               </h3>
               <div className="relative pl-6">
                 <div className="absolute left-2 top-2 bottom-2 w-0.5 bg-app-border" />
-                {[
-                  { time: selectedOrder.applyTime, label: '申请提交', status: 'done' },
-                  { time: selectedOrder.auditTime, label: '审批完成', status: selectedOrder.auditTime ? 'done' : 'pending' },
-                  { time: selectedOrder.departureTime, label: '开始运输', status: selectedOrder.departureTime ? 'done' : 'pending' },
-                  { time: selectedOrder.arrivalTime, label: '到达处置厂', status: selectedOrder.arrivalTime ? 'done' : 'pending' },
-                  { time: selectedOrder.disposalTime, label: '处置完成', status: selectedOrder.disposalTime ? 'done' : 'pending' }
-                ]
-                  .filter((step) => step.time || step.status === 'pending')
-                  .map((step, index) => (
-                    <div key={index} className="relative pb-6 last:pb-0">
-                      <div
-                        className={twMerge(
-                          'absolute -left-6 w-4 h-4 rounded-full border-2',
-                          step.status === 'done'
-                            ? 'bg-success-500 border-success-500'
-                            : 'bg-app-bg border-app-border'
-                        )}
-                      />
-                      <div className="flex items-center justify-between">
-                        <span className={twMerge(
-                          'text-sm',
-                          step.status === 'done' ? 'text-app-text' : 'text-app-text-muted'
-                        )}>
-                          {step.label}
-                        </span>
-                        <span className="text-xs text-app-text-muted">
-                          {step.time ? formatDateTime(step.time) : '待处理'}
-                        </span>
+                {(selectedOrder.timeline?.length ? selectedOrder.timeline : [
+                  { status: 'PENDING_AUDIT', title: '提交转运申请', time: selectedOrder.applyTime, description: '申请已提交，等待审批' },
+                  ...(selectedOrder.auditTime ? [
+                    { status: selectedOrder.status === 'REJECTED' ? 'REJECTED' : 'APPROVED',
+                      title: selectedOrder.status === 'REJECTED' ? '审批拒绝' : '审批通过',
+                      time: selectedOrder.auditTime,
+                      description: selectedOrder.auditOpinion }
+                  ] : [
+                    { status: 'PENDING_AUDIT', title: '等待审批', time: '', description: '环保部门审核中' }
+                  ]),
+                  ...(selectedOrder.departureTime ? [
+                    { status: 'IN_TRANSIT', title: '开始运输', time: selectedOrder.departureTime, description: '车辆已出发' }
+                  ] : []),
+                  ...(selectedOrder.arrivalTime ? [
+                    { status: 'ARRIVED', title: '到达处置厂', time: selectedOrder.arrivalTime, description: '已安全到达' }
+                  ] : []),
+                  ...(selectedOrder.disposalTime ? [
+                    { status: 'COMPLETED', title: '处置完成', time: selectedOrder.disposalTime, description: '废物已无害化处置' }
+                  ] : []),
+                ] as any[])
+                  .map((step, index, arr) => {
+                    const isDone = !!step.time
+                    const isCurrent = !step.time && index === arr.findIndex(s => !s.time)
+                    return (
+                      <div key={index} className="relative pb-6 last:pb-0">
+                        <div
+                          className={twMerge(
+                            'absolute -left-6 w-4 h-4 rounded-full border-2 flex items-center justify-center',
+                            isDone
+                              ? 'bg-success-500 border-success-500'
+                              : isCurrent
+                                ? 'bg-primary-500 border-primary-500 animate-pulse'
+                                : 'bg-app-bg border-app-border'
+                          )}
+                        />
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className={twMerge(
+                              'text-sm font-medium',
+                              isDone ? 'text-app-text' : isCurrent ? 'text-primary-400' : 'text-app-text-muted'
+                            )}>
+                              {step.title}
+                              {step.operator && (
+                                <span className="ml-2 text-xs text-app-text-muted font-normal">
+                                  · {step.operator}
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-xs text-app-text-muted">
+                              {step.time ? formatDateTime(step.time) : '待处理'}
+                            </span>
+                          </div>
+                          {step.description && (
+                            <p className="text-xs text-app-text-muted">{step.description}</p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
               </div>
             </div>
 
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-app-text flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-primary-400" />
-                操作日志
-              </h3>
-              <div className="space-y-3">
-                <div className="p-3 bg-app-bg rounded-lg border border-app-border">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium text-app-text">创建订单</span>
-                    <span className="text-xs text-app-text-muted">{formatDateTime(selectedOrder.applyTime)}</span>
-                  </div>
-                  <p className="text-sm text-app-text-muted">申请人：{currentUser?.name || '系统'}</p>
-                </div>
-                {selectedOrder.auditTime && (
+            {selectedOrder.status && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-app-text flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-primary-400" />
+                  审批信息
+                </h3>
+                {selectedOrder.auditTime ? (
                   <div className="p-3 bg-app-bg rounded-lg border border-app-border">
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center justify-between mb-2">
                       <span className={twMerge(
                         'text-sm font-medium',
                         selectedOrder.status === 'REJECTED' ? 'text-danger-400' : 'text-success-400'
                       )}>
-                        {selectedOrder.status === 'REJECTED' ? '拒绝申请' : '批准申请'}
+                        {selectedOrder.status === 'REJECTED' ? '已拒绝' : '审批通过'}
                       </span>
                       <span className="text-xs text-app-text-muted">{formatDateTime(selectedOrder.auditTime)}</span>
                     </div>
                     {selectedOrder.auditOpinion && (
-                      <p className="text-sm text-app-text-muted">
-                        审批意见：{selectedOrder.auditOpinion}
+                      <p className="text-sm text-app-text-secondary">
+                        <span className="text-app-text-muted font-medium">审批意见：</span>
+                        {selectedOrder.auditOpinion}
                       </p>
                     )}
                   </div>
-                )}
-                {selectedOrder.departureTime && (
-                  <div className="p-3 bg-app-bg rounded-lg border border-app-border">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium text-primary-400">开始运输</span>
-                      <span className="text-xs text-app-text-muted">{formatDateTime(selectedOrder.departureTime)}</span>
-                    </div>
-                  </div>
-                )}
-                {selectedOrder.arrivalTime && (
-                  <div className="p-3 bg-app-bg rounded-lg border border-app-border">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium text-blue-400">到达处置厂</span>
-                      <span className="text-xs text-app-text-muted">{formatDateTime(selectedOrder.arrivalTime)}</span>
-                    </div>
-                  </div>
-                )}
-                {selectedOrder.disposalTime && (
-                  <div className="p-3 bg-app-bg rounded-lg border border-app-border">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium text-success-400">处置完成</span>
-                      <span className="text-xs text-app-text-muted">{formatDateTime(selectedOrder.disposalTime)}</span>
-                    </div>
+                ) : (
+                  <div className="p-3 bg-warning-500/10 rounded-lg border border-warning-500/30">
+                    <p className="text-sm text-warning-400">等待环保部门审批</p>
                   </div>
                 )}
               </div>
-            </div>
+            )}
           </div>
         )}
       </Drawer>

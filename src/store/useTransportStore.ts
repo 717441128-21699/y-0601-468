@@ -7,7 +7,8 @@ import {
   DispatchSuggestion,
   TransportRoute,
   TransportStatistics,
-  TransferOrderStatusType
+  TransferOrderStatusType,
+  TimelineEvent
 } from '@/types'
 import { db } from '@/db'
 import { generateId, generateOrderNo, smartDispatch } from '@/utils/algorithm'
@@ -31,6 +32,7 @@ interface TransportState {
   approveOrder: (orderId: string, auditorId: string, opinion?: string) => Promise<void>
   rejectOrder: (orderId: string, auditorId: string, opinion: string) => Promise<void>
   startTransport: (orderId: string) => Promise<void>
+  getTimelineForOrder: (orderId: string) => Promise<TimelineEvent[]>
   completeTransport: (orderId: string) => Promise<void>
   completeDisposal: (orderId: string) => Promise<void>
 
@@ -110,6 +112,9 @@ export const useTransportStore = create<TransportState>()((set, get) => ({
       categoryId: r.categoryId
     }))
 
+    const users = await db.users.toArray()
+    const applyUser = users.find(u => u.id === application.applyBy)
+
     const order: TransferOrder = {
       id: generateId(),
       orderNo: generateOrderNo(),
@@ -124,28 +129,21 @@ export const useTransportStore = create<TransportState>()((set, get) => ({
       applyTime: now,
       applyBy: application.applyBy,
       remarks: application.remarks,
+      route: suggestion.route,
+      timeline: [
+        {
+          status: 'PENDING_AUDIT',
+          title: '提交转运申请',
+          time: now,
+          operator: applyUser?.name || '未知用户',
+          description: `申请转运 ${wasteRecords.length} 条废物记录，预计重量 ${totalWeight.toFixed(2)} kg`
+        }
+      ],
       createdAt: now,
       updatedAt: now
     }
 
-    await db.transaction('rw', db.transferOrders, db.wasteRecords, db.vehicles, async () => {
-      await db.transferOrders.add(order)
-
-      for (const recordId of application.wasteRecordIds) {
-        await db.wasteRecords.update(recordId, {
-          status: 'IN_TRANSIT',
-          transferOrderId: order.id,
-          updatedAt: now
-        })
-      }
-
-      await db.vehicles.update(suggestion.vehicleId, {
-        status: 'IN_TRANSIT',
-        driverId: suggestion.driverId,
-        currentWeight: totalWeight,
-        updatedAt: now
-      })
-    })
+    await db.transferOrders.add(order)
 
     await get().loadOrders()
     await get().loadVehicles()
@@ -155,44 +153,60 @@ export const useTransportStore = create<TransportState>()((set, get) => ({
 
   approveOrder: async (orderId, auditorId, opinion) => {
     const now = new Date().toISOString()
-    await db.transferOrders.update(orderId, {
-      status: 'APPROVED',
-      auditTime: now,
-      auditBy: auditorId,
-      auditOpinion: opinion || '同意转运',
-      updatedAt: now
-    })
+    const order = await db.transferOrders.get(orderId)
+    const users = await db.users.toArray()
+    const auditUser = users.find(u => u.id === auditorId)
+    const auditOpinion = opinion || '同意转运'
+
+    if (order) {
+      const newTimeline = [
+        ...order.timeline,
+        {
+          status: 'APPROVED',
+          title: '审批通过',
+          time: now,
+          operator: auditUser?.name || '未知审批员',
+          description: auditOpinion
+        }
+      ]
+
+      await db.transferOrders.update(orderId, {
+        status: 'APPROVED',
+        auditTime: now,
+        auditBy: auditorId,
+        auditOpinion,
+        timeline: newTimeline,
+        updatedAt: now
+      })
+    }
     await get().loadOrders()
   },
 
   rejectOrder: async (orderId, auditorId, opinion) => {
     const now = new Date().toISOString()
     const order = await db.transferOrders.get(orderId)
+    const users = await db.users.toArray()
+    const auditUser = users.find(u => u.id === auditorId)
 
     if (order) {
-      await db.transaction('rw', db.transferOrders, db.wasteRecords, db.vehicles, async () => {
-        await db.transferOrders.update(orderId, {
+      const newTimeline = [
+        ...order.timeline,
+        {
           status: 'REJECTED',
-          auditTime: now,
-          auditBy: auditorId,
-          auditOpinion: opinion,
-          updatedAt: now
-        })
-
-        for (const item of order.items) {
-          await db.wasteRecords.update(item.wasteRecordId, {
-            status: 'IN_STORAGE',
-            transferOrderId: undefined,
-            updatedAt: now
-          })
+          title: '审批拒绝',
+          time: now,
+          operator: auditUser?.name || '未知审批员',
+          description: opinion
         }
+      ]
 
-        await db.vehicles.update(order.vehicleId, {
-          status: 'IDLE',
-          driverId: undefined,
-          currentWeight: 0,
-          updatedAt: now
-        })
+      await db.transferOrders.update(orderId, {
+        status: 'REJECTED',
+        auditTime: now,
+        auditBy: auditorId,
+        auditOpinion: opinion,
+        timeline: newTimeline,
+        updatedAt: now
       })
     }
 
@@ -202,12 +216,56 @@ export const useTransportStore = create<TransportState>()((set, get) => ({
 
   startTransport: async (orderId) => {
     const now = new Date().toISOString()
-    await db.transferOrders.update(orderId, {
-      status: 'IN_TRANSIT',
-      departureTime: now,
-      updatedAt: now
-    })
+    const order = await db.transferOrders.get(orderId)
+
+    if (order) {
+      const users = await db.users.toArray()
+      const vehicles = await db.vehicles.toArray()
+      const vehicle = vehicles.find(v => v.id === order.vehicleId)
+      const driver = users.find(u => u.id === order.driverId)
+
+      const newTimeline = [
+        ...order.timeline,
+        {
+          status: 'IN_TRANSIT',
+          title: '开始运输',
+          time: now,
+          operator: driver?.name || order.driverId,
+          description: `车辆 ${vehicle?.plateNo || order.vehicleId} 已出发`
+        }
+      ]
+
+      await db.transaction('rw', db.transferOrders, db.wasteRecords, db.vehicles, async () => {
+        await db.transferOrders.update(orderId, {
+          status: 'IN_TRANSIT',
+          departureTime: now,
+          timeline: newTimeline,
+          updatedAt: now
+        })
+
+        for (const item of order.items) {
+          await db.wasteRecords.update(item.wasteRecordId, {
+            status: 'IN_TRANSIT',
+            transferOrderId: order.id,
+            updatedAt: now
+          })
+        }
+
+        await db.vehicles.update(order.vehicleId, {
+          status: 'IN_TRANSIT',
+          driverId: order.driverId,
+          currentWeight: order.totalWeight,
+          updatedAt: now
+        })
+      })
+    }
     await get().loadOrders()
+    await get().loadVehicles()
+  },
+
+  getTimelineForOrder: async (orderId) => {
+    const order = await db.transferOrders.get(orderId)
+    return order?.timeline || []
   },
 
   completeTransport: async (orderId) => {
@@ -215,10 +273,25 @@ export const useTransportStore = create<TransportState>()((set, get) => ({
     const order = await db.transferOrders.get(orderId)
 
     if (order) {
+      const users = await db.users.toArray()
+      const factoryStaff = users.find(u => u.role === 'DISPOSAL' || u.role === 'DISPOSAL_OPERATOR')
+      
+      const newTimeline = [
+        ...order.timeline,
+        {
+          status: 'ARRIVED',
+          title: '到达处置厂',
+          time: now,
+          operator: factoryStaff?.name || '处置厂接收',
+          description: `订单 ${order.orderNo} 已安全抵达处置厂，等待交接`
+        }
+      ]
+
       await db.transaction('rw', db.transferOrders, db.vehicles, async () => {
         await db.transferOrders.update(orderId, {
           status: 'ARRIVED',
           arrivalTime: now,
+          timeline: newTimeline,
           updatedAt: now
         })
 
@@ -240,10 +313,25 @@ export const useTransportStore = create<TransportState>()((set, get) => ({
     const order = await db.transferOrders.get(orderId)
 
     if (order) {
+      const users = await db.users.toArray()
+      const factoryStaff = users.find(u => u.role === 'DISPOSAL' || u.role === 'DISPOSAL_OPERATOR')
+      
+      const newTimeline = [
+        ...order.timeline,
+        {
+          status: 'COMPLETED',
+          title: '处置完成',
+          time: now,
+          operator: factoryStaff?.name || '处置厂操作员',
+          description: `订单 ${order.orderNo} 所有废物已完成无害化处置，联单已生成`
+        }
+      ]
+
       await db.transaction('rw', db.transferOrders, db.wasteRecords, async () => {
         await db.transferOrders.update(orderId, {
           status: 'COMPLETED',
           disposalTime: now,
+          timeline: newTimeline,
           updatedAt: now
         })
 

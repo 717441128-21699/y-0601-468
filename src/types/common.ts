@@ -38,10 +38,13 @@ export type AlertTypeType =
   | 'TEMPERATURE_HIGH'
   | 'TEMPERATURE_LOW'
   | 'WEIGHT_DEVIATION'
+  | 'WEIGHT_ABNORMAL'
   | 'HUMIDITY_HIGH'
   | 'STORAGE_FULL'
   | 'VEHICLE_FAULT'
   | 'DEVICE_OFFLINE'
+  | 'DOOR_OPEN'
+  | 'SPEED_EXCEED'
 
 export interface Alert {
   id: string
@@ -149,4 +152,17 @@ export const AlertLevelColor: Record<AlertLevelType, string> = {
   INFO: '#0066CC',
   WARNING: '#FB8C00',
   CRITICAL: '#E53935'
+}
+
+export const AlertTypeLabel: Record<AlertTypeType, string> = {
+  TEMPERATURE_HIGH: '温度过高',
+  TEMPERATURE_LOW: '温度过低',
+  WEIGHT_DEVIATION: '重量偏差',
+  WEIGHT_ABNORMAL: '重量异常',
+  HUMIDITY_HIGH: '湿度过高',
+  STORAGE_FULL: '暂存容量不足',
+  VEHICLE_FAULT: '车辆故障',
+  DEVICE_OFFLINE: '设备离线',
+  DOOR_OPEN: '车门异常开启',
+  SPEED_EXCEED: '超速行驶'
 }

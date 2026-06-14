@@ -5,7 +5,8 @@ import {
   DisposalFactory,
   TransferOrderApplication,
   DispatchSuggestion,
-  GeoLocation
+  GeoLocation,
+  RouteInfo
 } from '@/types'
 
 export function calculateDistance(point1: GeoLocation, point2: GeoLocation): number {
@@ -91,13 +92,24 @@ export function smartDispatch(
     return []
   }
 
+  const avgSpeed = 45 * 1000 / 60
+  const loadingTime = 20
+  const unloadingTime = 15
+
   const suggestions: DispatchSuggestion[] = []
 
   availableVehicles.forEach((vehicle) => {
-    const distance = calculateDistance(
-      { lat: vehicle.currentLat, lng: vehicle.currentLng },
-      { lat: institution.lat, lng: institution.lng }
-    )
+    const vehicleStart: GeoLocation = { lat: vehicle.currentLat, lng: vehicle.currentLng }
+    const institutionPoint: GeoLocation = { lat: institution.lat, lng: institution.lng }
+    const factoryPoint: GeoLocation = { lat: factory.lat, lng: factory.lng }
+
+    const distanceV2I = calculateDistance(vehicleStart, institutionPoint)
+    const distanceI2F = calculateDistance(institutionPoint, factoryPoint)
+    const totalDistance = distanceV2I + distanceI2F
+
+    const timeV2I = Math.floor(distanceV2I / avgSpeed)
+    const timeI2F = Math.floor(distanceI2F / avgSpeed)
+    const totalEstimatedTime = timeV2I + loadingTime + timeI2F + unloadingTime
 
     const storageRooms = institution.storageRooms || []
     const totalCapacity = storageRooms.reduce((sum, room) => sum + room.capacity, 0)
@@ -105,13 +117,23 @@ export function smartDispatch(
     const storageUtilization = totalCapacity > 0 ? currentVolume / totalCapacity : 0
 
     const idleTimeFactor = Math.random()
-    const distanceNormalized = distance / 50000
+    const distanceNormalized = totalDistance / 100000
     const distanceFactor = 1 - Math.min(distanceNormalized, 1)
 
     const priorityScore =
       0.4 * (1 - idleTimeFactor) + 0.3 * distanceFactor + 0.3 * storageUtilization
 
-    const estimatedTime = Math.floor(distance / (60 * 1000)) + 30
+    const route: RouteInfo = {
+      vehicleToInstitution: { distance: distanceV2I, estimatedTime: timeV2I },
+      institutionToFactory: { distance: distanceI2F, estimatedTime: timeI2F },
+      totalDistance,
+      totalEstimatedTime,
+      waypoints: {
+        vehicleStart,
+        institution: { ...institutionPoint, name: institution.name },
+        factory: { ...factoryPoint, name: factory.name }
+      }
+    }
 
     const availableDriver = availableDrivers.find(
       (d) => !vehicles.some((v) => v.driverId === d.id && v.status === 'IN_TRANSIT')
@@ -123,10 +145,11 @@ export function smartDispatch(
         vehiclePlateNo: vehicle.plateNo,
         driverId: availableDriver.id,
         driverName: availableDriver.name,
-        estimatedTime,
-        distance,
+        estimatedTime: totalEstimatedTime,
+        distance: totalDistance,
         priorityScore,
-        reason: generateDispatchReason(distance, storageUtilization, vehicle.capacity)
+        reason: generateDispatchReason(totalDistance, storageUtilization, vehicle.capacity),
+        route
       })
     }
   })
