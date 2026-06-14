@@ -54,6 +54,7 @@ export interface Alert {
   message: string
   sourceId: string
   sourceType: string
+  orderId?: string
   timestamp: string
   acknowledged: boolean
   acknowledgedBy?: string

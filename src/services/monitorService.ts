@@ -25,7 +25,8 @@ async function triggerAlert(
   title: string,
   message: string,
   sourceId: string,
-  sourceType: string
+  sourceType: string,
+  orderId?: string
 ): Promise<void> {
   const key = generateAlertKey(sourceId, type)
   if (triggeredAlertKeys.has(key)) return
@@ -44,6 +45,7 @@ async function triggerAlert(
     message,
     sourceId,
     sourceType,
+    orderId,
     timestamp: new Date().toISOString(),
     acknowledged: false
   }
@@ -120,7 +122,8 @@ export function startRealTimeMonitoring(): void {
             `${vehicle.plateNo} 超速行驶`,
             `车辆 ${vehicle.plateNo} 当前车速 ${currentSpeed.toFixed(1)} km/h，超过限速 ${SPEED_LIMIT} km/h`,
             vehicle.id,
-            'VEHICLE'
+            'VEHICLE',
+            order.id
           )
         }
 
@@ -131,7 +134,8 @@ export function startRealTimeMonitoring(): void {
             `${vehicle.plateNo} 车门异常开启`,
             `运输过程中车辆 ${vehicle.plateNo} 车门被开启，可能存在安全风险`,
             vehicle.id,
-            'VEHICLE'
+            'VEHICLE',
+            order.id
           )
         }
 
@@ -143,7 +147,8 @@ export function startRealTimeMonitoring(): void {
             `${vehicle.plateNo} 重量异常`,
             `车辆 ${vehicle.plateNo} 当前重量 ${currentWeight.toFixed(2)} kg，与登记重量偏差 ${(weightDeviation * 100).toFixed(1)}%`,
             vehicle.id,
-            'VEHICLE'
+            'VEHICLE',
+            order.id
           )
         }
 
@@ -154,7 +159,8 @@ export function startRealTimeMonitoring(): void {
             `${vehicle.plateNo} 箱体温度过高`,
             `车辆 ${vehicle.plateNo} 箱体温度 ${temperature.toFixed(1)}°C，超过建议上限 ${TEMPERATURE_MAX}°C`,
             vehicle.id,
-            'VEHICLE'
+            'VEHICLE',
+            order.id
           )
         }
         if (temperature < TEMPERATURE_MIN) {
@@ -164,7 +170,8 @@ export function startRealTimeMonitoring(): void {
             `${vehicle.plateNo} 箱体温度过低`,
             `车辆 ${vehicle.plateNo} 箱体温度 ${temperature.toFixed(1)}°C，低于建议下限 ${TEMPERATURE_MIN}°C`,
             vehicle.id,
-            'VEHICLE'
+            'VEHICLE',
+            order.id
           )
         }
 

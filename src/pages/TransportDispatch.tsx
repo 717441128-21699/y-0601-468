@@ -31,6 +31,7 @@ import { Card, CardBody } from '@/components/ui/Card'
 import { useTransportStore } from '@/store/useTransportStore'
 import { useWasteStore } from '@/store/useWasteStore'
 import { useUserStore } from '@/store/useUserStore'
+import { db } from '@/db'
 import {
   TransferOrder,
   TransferOrderStatusType,
@@ -289,6 +290,7 @@ export function TransportDispatch() {
       setConfirmModal({ ...confirmModal, isOpen: false })
       setApproveModalOpen(false)
       setAuditOpinion('')
+      await refreshSelectedOrder()
     } finally {
     }
   }
@@ -300,6 +302,7 @@ export function TransportDispatch() {
       setConfirmModal({ ...confirmModal, isOpen: false })
       setApproveModalOpen(false)
       setAuditOpinion('')
+      await refreshSelectedOrder()
     } finally {
     }
   }
@@ -314,12 +317,17 @@ export function TransportDispatch() {
     setDetailDrawerOpen(true)
   }
 
+  const refreshSelectedOrder = async () => {
+    if (!selectedOrder) return
+    const fresh = await db.transferOrders.get(selectedOrder.id)
+    if (fresh) setSelectedOrder(fresh)
+  }
+
   const handleStartTransport = async () => {
     if (!selectedOrder) return
     try {
       await startTransport(selectedOrder.id)
-      const updated = orders.find((o) => o.id === selectedOrder.id)
-      if (updated) setSelectedOrder(updated)
+      await refreshSelectedOrder()
     } catch (e) {
       console.error('Failed to start transport:', e)
     }
@@ -329,8 +337,7 @@ export function TransportDispatch() {
     if (!selectedOrder) return
     try {
       await completeTransport(selectedOrder.id)
-      const updated = orders.find((o) => o.id === selectedOrder.id)
-      if (updated) setSelectedOrder(updated)
+      await refreshSelectedOrder()
     } catch (e) {
       console.error('Failed to complete transport:', e)
     }
@@ -340,8 +347,7 @@ export function TransportDispatch() {
     if (!selectedOrder) return
     try {
       await completeDisposal(selectedOrder.id)
-      const updated = orders.find((o) => o.id === selectedOrder.id)
-      if (updated) setSelectedOrder(updated)
+      await refreshSelectedOrder()
     } catch (e) {
       console.error('Failed to complete disposal:', e)
     }
