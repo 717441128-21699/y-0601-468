@@ -1,0 +1,149 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  }
+
+  body {
+    @apply bg-app-bg text-app-text antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-app-bg;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-app-border rounded-full hover:bg-app-text-muted transition-colors;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-app-text-muted;
+  }
+
+  ::selection {
+    @apply bg-primary-500/30 text-app-text;
+  }
+
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  .glass-effect {
+    @apply bg-app-bg-light/80 backdrop-blur-md border border-app-border/50;
+  }
+
+  .glow-primary {
+    box-shadow: 0 0 20px rgba(0, 102, 204, 0.4);
+  }
+
+  .glow-danger {
+    box-shadow: 0 0 20px rgba(229, 57, 53, 0.4);
+  }
+
+  .glow-warning {
+    box-shadow: 0 0 20px rgba(251, 140, 0, 0.4);
+  }
+
+  .glow-success {
+    box-shadow: 0 0 20px rgba(67, 160, 71, 0.4);
+  }
+
+  .gradient-border {
+    position: relative;
+    background: linear-gradient(var(--tw-gradient-stops));
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, #0066CC, #0099FF);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .data-glow {
+    text-shadow: 0 0 10px currentColor;
+  }
+
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .animate-blink {
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .scanline {
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 102, 204, 0.03),
+      rgba(0, 102, 204, 0.03) 2px,
+      transparent 2px,
+      transparent 4px
+    );
+  }
+
+  .mono-number {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+}
+
+@layer utilities {
+  .content-auto {
+    content-visibility: auto;
+  }
+
+  .text-shadow-glow {
+    text-shadow: 0 0 20px currentColor;
+  }
+
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(58, 74, 97, 0.3) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(58, 74, 97, 0.3) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .bg-dots {
+    background-image: radial-gradient(rgba(58, 74, 97, 0.5) 1px, transparent 1px);
+    background-size: 16px 16px;
+  }
+
+  .mask-fade-bottom {
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  }
+
+  .mask-fade-right {
+    mask-image: linear-gradient(to right, black 80%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black 80%, transparent 100%);
+  }
+}
