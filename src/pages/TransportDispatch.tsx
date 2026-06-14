@@ -16,6 +16,7 @@ import {
   Star,
   Package,
   AlertCircle,
+  AlertTriangle,
   ChevronRight,
   CheckCircle2,
   XCircle,
@@ -32,6 +33,7 @@ import { useTransportStore } from '@/store/useTransportStore'
 import { useWasteStore } from '@/store/useWasteStore'
 import { useUserStore } from '@/store/useUserStore'
 import { db } from '@/db'
+import { getAlertContext, saveAlertContext } from '@/components/Layout/MainLayout'
 import {
   TransferOrder,
   TransferOrderStatusType,
@@ -47,7 +49,7 @@ import {
   WasteCategoryColor,
   VehicleStatusLabel
 } from '@/types/common'
-import { formatDateTime, formatWeight, formatDistance, formatDuration } from '@/utils/format'
+import { formatDateTime, formatTime, formatWeight, formatDistance, formatDuration } from '@/utils/format'
 
 const Drawer: React.FC<{
   isOpen: boolean
@@ -175,11 +177,32 @@ export function TransportDispatch() {
   const [reassignModalOpen, setReassignModalOpen] = useState(false)
   const [reassignVehicleId, setReassignVehicleId] = useState<string>('')
   const [reassignDriverId, setReassignDriverId] = useState<string>('')
+  const [restoredFromContext, setRestoredFromContext] = useState(false)
 
   useEffect(() => {
     loadAllData()
     loadWasteData()
   }, [])
+
+  useEffect(() => {
+    const ctx = getAlertContext()
+    if (ctx.dispatch?.openOrderId && orders.length > 0 && !restoredFromContext) {
+      const order = orders.find(o => o.id === ctx.dispatch?.openOrderId)
+      if (order) {
+        setSelectedOrder(order)
+        setDetailDrawerOpen(true)
+        setRestoredFromContext(true)
+      }
+    }
+  }, [orders, restoredFromContext])
+
+  useEffect(() => {
+    if (selectedOrder) {
+      saveAlertContext({
+        dispatch: { openOrderId: selectedOrder.id }
+      })
+    }
+  }, [selectedOrder?.id])
 
   useEffect(() => {
     const filters: any = {}
@@ -1531,6 +1554,122 @@ export function TransportDispatch() {
                 ))}
               </select>
             </div>
+
+            {(reassignVehicleId || reassignDriverId) && (
+              (() => {
+                const orderDate = selectedOrder.applyTime.slice(0, 10)
+                const sameDayOrders = orders.filter(o =>
+                  o.id !== selectedOrder.id &&
+                  o.applyTime.slice(0, 10) === orderDate &&
+                  ['APPROVED', 'IN_TRANSIT', 'ARRIVED', 'COMPLETED', 'PENDING_AUDIT'].includes(o.status)
+                )
+                const vehicleConflicts = sameDayOrders.filter(o => o.vehicleId === reassignVehicleId)
+                const driverConflicts = sameDayOrders.filter(o => o.driverId === reassignDriverId)
+                const hasVehicleConflict = vehicleConflicts.length > 0
+                const hasDriverConflict = driverConflicts.length > 0 && reassignDriverId !== selectedOrder.driverId
+
+                const ConflictCard = ({ list, type }: { list: typeof sameDayOrders; type: 'vehicle' | 'driver' }) => {
+                  if (list.length === 0) return null
+                  return (
+                    <div className="space-y-2">
+                      {list.map((c) => (
+                        <div key={c.id} className="p-2 bg-app-bg rounded border border-app-border flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <Badge variant={
+                                c.status === 'COMPLETED' ? 'success' :
+                                c.status === 'IN_TRANSIT' ? 'info' :
+                                c.status === 'APPROVED' ? 'primary' :
+                                c.status === 'REJECTED' ? 'danger' : 'default'
+                              } size="sm">
+                                {TransferOrderStatusLabel[c.status as keyof typeof TransferOrderStatusLabel]}
+                              </Badge>
+                              <span className="text-xs font-mono text-app-text truncate">{c.orderNo}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-app-text-muted mt-1 flex-wrap">
+                              <span>📅 {formatTime(c.applyTime)}</span>
+                              <span>🏥 {getInstitutionName(c.institutionId)}</span>
+                              {type === 'vehicle' && (
+                                <span>👤 {getDriverName(c.driverId)}</span>
+                              )}
+                              {type === 'driver' && (
+                                <span>🚚 {vehicles.find(v => v.id === c.vehicleId)?.plateNo || '未指定'}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }
+
+                const isBlocked = hasVehicleConflict || hasDriverConflict
+
+                return (
+                  <div className="space-y-3 pt-2 border-t border-app-border">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-app-text flex items-center gap-1.5">
+                        <Calendar className="w-4 h-4 text-primary-400" />
+                        同日占用日历 ({orderDate})
+                      </h4>
+                      {isBlocked ? (
+                        <Badge variant="danger" size="sm">存在冲突</Badge>
+                      ) : (
+                        <Badge variant="success" size="sm">无冲突</Badge>
+                      )}
+                    </div>
+
+                    {reassignVehicleId && (
+                      <div className="p-3 bg-app-bg-lighter rounded-lg border border-app-border space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-app-text-secondary flex items-center gap-1.5">
+                            <Truck className="w-3 h-3" />
+                            车辆 {vehicles.find(v => v.id === reassignVehicleId)?.plateNo || reassignVehicleId}
+                          </span>
+                          <span className={twMerge(
+                            'text-[11px] font-medium',
+                            hasVehicleConflict ? 'text-danger-400' : 'text-success-400'
+                          )}>
+                            {hasVehicleConflict ? `已有 ${vehicleConflicts.length} 个任务安排` : '当日空闲'}
+                          </span>
+                        </div>
+                        <ConflictCard list={vehicleConflicts} type="vehicle" />
+                      </div>
+                    )}
+
+                    {reassignDriverId && (
+                      <div className="p-3 bg-app-bg-lighter rounded-lg border border-app-border space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-app-text-secondary flex items-center gap-1.5">
+                            <User className="w-3 h-3" />
+                            司机 {drivers.find(d => d.id === reassignDriverId)?.name || reassignDriverId}
+                          </span>
+                          <span className={twMerge(
+                            'text-[11px] font-medium',
+                            hasDriverConflict ? 'text-danger-400' : 'text-success-400'
+                          )}>
+                            {hasDriverConflict ? `已有 ${driverConflicts.length} 个任务安排` : '当日空闲'}
+                          </span>
+                        </div>
+                        <ConflictCard list={driverConflicts} type="driver" />
+                      </div>
+                    )}
+
+                    {isBlocked && (
+                      <div className="p-3 bg-danger-500/10 border border-danger-500/30 rounded-lg">
+                        <p className="text-xs text-danger-400 flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                          <span>
+                            存在时间冲突，确认改派后可能导致同一资源并发占用。
+                            建议优先考虑空闲车辆/司机，或协调原任务改期。
+                          </span>
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()
+            )}
 
             {(reassignVehicleId && reassignVehicleId !== selectedOrder.vehicleId) && (
               <div className="p-3 bg-primary-500/10 border border-primary-500/30 rounded-lg">

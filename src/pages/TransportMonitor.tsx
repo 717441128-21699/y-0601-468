@@ -28,7 +28,8 @@ import {
   ChevronUp,
   User,
   Calendar,
-  X
+  X,
+  ArrowLeft
 } from 'lucide-react'
 import {
   startRealTimeMonitoring,
@@ -38,6 +39,7 @@ import { useMonitorStore } from '@/store/useMonitorStore'
 import { useTransportStore } from '@/store/useTransportStore'
 import { useUserStore } from '@/store/useUserStore'
 import { useWasteStore } from '@/store/useWasteStore'
+import { getAlertContext, saveAlertContext, clearAlertContext } from '@/components/Layout/MainLayout'
 import { Gauge, StatCard } from '@/components/ui/Gauge'
 import { Card, CardHeader, CardTitle, CardBody } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -112,6 +114,51 @@ const TransportMonitor: React.FC = () => {
       stopRealTimeMonitoring()
     }
   }, [loadAllData, loadAlerts])
+
+  const [restoredContext, setRestoredContext] = useState<any>(null)
+  useEffect(() => {
+    const ctx = getAlertContext()
+    if (ctx.monitor && vehicles.length > 0 && orders.length > 0) {
+      const m = ctx.monitor
+      if (m.selectedVehicleId) {
+        const v = vehicles.find(vh => vh.id === m.selectedVehicleId)
+        if (v) {
+          setSelectedVehicle(v)
+          setExpandedVehicleId(m.expandedVehicleId || m.selectedVehicleId)
+        }
+      }
+      if (m.selectedOrderId) {
+        const o = orders.find(or => or.id === m.selectedOrderId)
+        if (o) setSelectedOrder(o)
+      }
+      if (m.selectedAlertId) {
+        const alert = alerts.find(a => a.id === m.selectedAlertId)
+        if (alert) setSelectedAlert(alert)
+      }
+      if (m.alertTab) setAlertTab(m.alertTab)
+      if (m.alertFilter) setAlertFilter(m.alertFilter)
+      if (m.levelFilter) setLevelFilter(m.levelFilter)
+      if (m.selectedAlertIds) setSelectedAlertIds(new Set(m.selectedAlertIds))
+      setRestoredContext(ctx)
+      clearAlertContext()
+    }
+  }, [loadAllData, vehicles, orders, alerts])
+
+  useEffect(() => {
+    const ctx: any = {
+      monitor: {
+        selectedVehicleId: selectedVehicle?.id,
+        expandedVehicleId,
+        selectedOrderId: selectedOrder?.id,
+        alertTab,
+        alertFilter,
+        levelFilter,
+        selectedAlertIds: Array.from(selectedAlertIds),
+        selectedAlertId: selectedAlert?.id
+      }
+    }
+    saveAlertContext(ctx)
+  }, [selectedVehicle?.id, expandedVehicleId, selectedOrder?.id, alertTab, alertFilter, levelFilter, selectedAlertIds, selectedAlert?.id])
 
   useEffect(() => {
     if (selectedVehicle) {
@@ -561,9 +608,27 @@ const TransportMonitor: React.FC = () => {
   return (
     <div className="h-full flex flex-col gap-4 p-4 overflow-auto">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-app-text">运输实时监控</h1>
-          <p className="text-app-text-secondary text-sm mt-1">实时监控运输车辆状态、位置、订单进度及报警</p>
+        <div className="flex items-start gap-3">
+          {restoredContext?.sourceAlertId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={<ArrowLeft className="w-4 h-4" />}
+              onClick={() => {
+                setRestoredContext(null)
+                clearAlertContext()
+                if (restoredContext.sourceAlertId) {
+                  saveAlertContext({ sourceAlertId: undefined })
+                }
+              }}
+            >
+              清除报警定位
+            </Button>
+          )}
+          <div>
+            <h1 className="text-2xl font-bold text-app-text">运输实时监控</h1>
+            <p className="text-app-text-secondary text-sm mt-1">实时监控运输车辆状态、位置、订单进度及报警</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -1032,98 +1097,357 @@ const TransportMonitor: React.FC = () => {
               <Card className="bg-app-bg-light">
                 <CardHeader className="py-2">
                   <CardTitle className="text-sm">
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-primary-400" />
-                      运输轨迹回放
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center gap-2">
+                        <Route className="w-4 h-4 text-primary-400" />
+                        运输轨迹与进度分析
+                      </div>
+                      {selectedOrder && (
+                        <div className="flex items-center gap-2">
+                          {(() => {
+                            const p = getVehicleProgressInfo(selectedVehicle || {} as Vehicle, selectedOrder)
+                            const isDelayed = selectedOrder.departureTime &&
+                              p.remainingMinutes > selectedOrder.route?.totalEstimatedTime * 0.15
+                            const route = selectedOrder.route
+                            const vState = transportStates[selectedVehicle?.id || '']
+                            const hasDeviation = route && vState && vState.status === 'WARNING'
+                            return (
+                              <>
+                                {isDelayed && (
+                                  <Badge variant="warning" size="sm">
+                                    <AlertTriangle className="w-3 h-3 mr-1" />
+                                    预计延误
+                                  </Badge>
+                                )}
+                                {hasDeviation && (
+                                  <Badge variant="danger" size="sm">
+                                    <AlertCircle className="w-3 h-3 mr-1" />
+                                    路线偏离
+                                  </Badge>
+                                )}
+                              </>
+                            )
+                          })()}
+                        </div>
+                      )}
                     </div>
                   </CardTitle>
                 </CardHeader>
-                <CardBody className="py-2 px-3">
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-4">
-                      <span className="text-app-text-secondary w-20 text-xs">运输订单:</span>
-                      <div className="flex-1">
-                        <select
-                          className="w-full bg-app-bg border border-app-border rounded px-3 py-1.5 text-app-text text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                          value={selectedOrder?.id || ''}
-                          onChange={(e) => {
-                            const order = inTransitOrders.find(o => o.id === e.target.value)
-                            setSelectedOrder(order || null)
-                            const vehicle = vehicles.find(v => v.id === order?.vehicleId)
-                            if (vehicle) {
-                              handleVehicleSelect(vehicle)
-                            }
-                          }}
-                        >
-                          <option value="">请选择运输订单</option>
-                          {orders.filter(o => ['APPROVED', 'IN_TRANSIT', 'ARRIVED'].includes(o.status)).map((order) => (
-                            <option key={order.id} value={order.id}>
-                              {order.orderNo} - {TransferOrderStatusLabel[order.status]}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          leftIcon={<SkipBack className="w-3 h-3" />}
-                          onClick={() => setPlaybackTime(Math.max(0, playbackTime - 10))}
-                        />
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          leftIcon={isPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                          onClick={() => setIsPlaying(!isPlaying)}
-                        >
-                          {isPlaying ? '暂停' : '播放'}
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          leftIcon={<SkipForward className="w-3 h-3" />}
-                          onClick={() => setPlaybackTime(Math.min(100, playbackTime + 10))}
-                        />
-                      </div>
-
-                      <div className="flex items-center gap-1 ml-auto">
-                        <span className="text-app-text-muted text-xs">倍速:</span>
-                        {[0.5, 1, 2, 4].map((speed) => (
-                          <Button
-                            key={speed}
-                            variant={playbackSpeed === speed ? 'primary' : 'secondary'}
-                            size="sm"
-                            onClick={() => setPlaybackSpeed(speed)}
-                            className="!px-2"
-                          >
-                            {speed}x
-                          </Button>
+                <CardBody className="py-2 px-3 space-y-3">
+                  <div className="flex items-center gap-4">
+                    <span className="text-app-text-secondary w-20 text-xs">运输订单:</span>
+                    <div className="flex-1">
+                      <select
+                        className="w-full bg-app-bg border border-app-border rounded px-3 py-1.5 text-app-text text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        value={selectedOrder?.id || ''}
+                        onChange={(e) => {
+                          const order = orders.find(o => o.id === e.target.value)
+                          setSelectedOrder(order || null)
+                          const vehicle = vehicles.find(v => v.id === order?.vehicleId)
+                          if (vehicle) handleVehicleSelect(vehicle)
+                        }}
+                      >
+                        <option value="">请选择运输订单</option>
+                        {orders.filter(o => ['APPROVED', 'IN_TRANSIT', 'ARRIVED', 'COMPLETED'].includes(o.status)).map((order) => (
+                          <option key={order.id} value={order.id}>
+                            {order.orderNo} - {TransferOrderStatusLabel[order.status]}
+                          </option>
                         ))}
-                      </div>
+                      </select>
                     </div>
+                  </div>
 
-                    {selectedOrder && (
-                      <div className="grid grid-cols-3 gap-3 pt-2 border-t border-app-border text-xs">
-                        <div>
-                          <span className="text-app-text-muted">订单号</span>
-                          <p className="text-app-text font-medium mt-0.5">{selectedOrder.orderNo}</p>
-                        </div>
-                        <div>
-                          <span className="text-app-text-muted">总重量</span>
-                          <p className="text-app-text font-medium mt-0.5">{formatWeight(selectedOrder.totalWeight)}</p>
-                        </div>
-                        <div>
-                          <span className="text-app-text-muted">出发时间</span>
-                          <p className="text-app-text font-medium mt-0.5">
-                            {selectedOrder.departureTime ? formatTime(selectedOrder.departureTime) : '--'}
-                          </p>
-                        </div>
+                  <div className="h-48">
+                    {selectedOrder && selectedOrder.route ? (
+                      <ReactECharts
+                        option={(() => {
+                          const route = selectedOrder.route!
+                          const p = getVehicleProgressInfo(selectedVehicle || {} as Vehicle, selectedOrder)
+                          const totalExpected = route.totalEstimatedTime
+
+                          const plannedX = [
+                            0,
+                            route.vehicleToInstitution.estimatedTime / Math.max(totalExpected, 1) * 100,
+                            (route.vehicleToInstitution.estimatedTime + 20) / Math.max(totalExpected, 1) * 100,
+                            (totalExpected - 15) / Math.max(totalExpected, 1) * 100,
+                            100
+                          ]
+                          const plannedY = [0, 0.45, 0.48, 0.92, 1]
+
+                          const v = selectedVehicle || { currentLat: 0, currentLng: 0 }
+                          const vehicleStartPoint = { lat: route.waypoints.vehicleStart.lat, lng: route.waypoints.vehicleStart.lng }
+                          const currentPoint = { lat: v.currentLat || vehicleStartPoint.lat, lng: v.currentLng || vehicleStartPoint.lng }
+                          const startToInst = calculateDistance(vehicleStartPoint, route.waypoints.institution)
+                          const currProgress = startToInst > 0 && p.stage !== 'not_started'
+                            ? Math.min(p.progressPercent, 100)
+                            : p.progressPercent
+
+                          let delayMinutes = 0
+                          if (selectedOrder.departureTime) {
+                            const elapsed = (Date.now() - new Date(selectedOrder.departureTime).getTime()) / 60000
+                            const expectedElapsed = totalExpected - p.remainingMinutes
+                            delayMinutes = Math.max(0, elapsed - expectedElapsed)
+                          }
+
+                          const addJitter = (val: number) => {
+                            if (p.stage === 'not_started') return val
+                            const noise = Math.sin(Date.now() / 10000 + val) * 0.02
+                            return Math.min(1, Math.max(0, val + noise))
+                          }
+
+                          const actualPoints = [
+                            { x: 0, y: 0 },
+                            ...(p.stage !== 'not_started' ? [
+                              { x: currProgress * 0.3, y: addJitter(currProgress * 0.003) },
+                              { x: currProgress * 0.65, y: addJitter(currProgress * 0.007) },
+                              { x: currProgress * 0.85, y: addJitter(currProgress * 0.01) },
+                              { x: currProgress, y: p.traveledDistance / Math.max(route.totalDistance, 1) }
+                            ] : [])
+                          ]
+
+                          const isDeviation = delayMinutes > 15 || p.progressPercent < currProgress * 0.7
+                          const deviationMark = isDeviation && p.stage !== 'not_started' && p.stage !== 'arrived'
+                            ? [{
+                              coord: [actualPoints[actualPoints.length - 1].x, actualPoints[actualPoints.length - 1].y],
+                              value: `偏离警告`,
+                              itemStyle: { color: '#E53935' }
+                            }] : []
+
+                          const delayMark = delayMinutes > 10 && p.stage !== 'not_started' && p.stage !== 'arrived'
+                            ? [{
+                              coord: [100, 0.5],
+                              value: `预计延误 ${Math.round(delayMinutes)} 分钟`,
+                              itemStyle: { color: '#FB8C00' },
+                              position: 'insideEndTop'
+                            }] : []
+
+                          return {
+                            backgroundColor: 'transparent',
+                            tooltip: {
+                              backgroundColor: 'rgba(37, 49, 66, 0.95)',
+                              borderColor: '#3A4A61',
+                              textStyle: { color: '#E2E8F0' },
+                              trigger: 'axis',
+                              formatter: (params: any[]) => {
+                                const lines = params.map((p: any) =>
+                                  `${p.marker}${p.seriesName}: 进度 ${p.value[0].toFixed(0)}%`
+                                )
+                                return lines.join('<br/>')
+                              }
+                            },
+                            legend: {
+                              data: ['计划路线', '实际轨迹'],
+                              textStyle: { color: '#64748B' },
+                              right: 10, top: 0,
+                              itemWidth: 14, itemHeight: 10
+                            },
+                            grid: {
+                              left: '12%', right: '6%', bottom: '18%', top: '20%'
+                            },
+                            xAxis: {
+                              type: 'value', name: '运输进度 (%)',
+                              nameTextStyle: { color: '#64748B', fontSize: 10 },
+                              min: 0, max: 100,
+                              axisLine: { lineStyle: { color: '#3A4A61' } },
+                              axisLabel: { color: '#64748B', formatter: '{value}%', fontSize: 10 },
+                              splitLine: { lineStyle: { color: '#3A4A61', type: 'dashed' } }
+                            },
+                            yAxis: {
+                              type: 'value', name: '路线完成度',
+                              nameTextStyle: { color: '#64748B', fontSize: 10 },
+                              min: 0, max: 1,
+                              axisLine: { lineStyle: { color: '#3A4A61' } },
+                              axisLabel: { color: '#64748B', fontSize: 10 },
+                              splitLine: { lineStyle: { color: '#3A4A61', type: 'dashed' } }
+                            },
+                            series: [
+                              {
+                                name: '计划路线',
+                                type: 'line',
+                                smooth: true,
+                                data: plannedX.map((x, i) => [x, plannedY[i]]),
+                                lineStyle: { color: '#0066CC', type: 'dashed', width: 2 },
+                                itemStyle: { color: '#0066CC' },
+                                symbolSize: 8,
+                                markPoint: {
+                                  symbol: 'pin',
+                                  symbolSize: 40,
+                                  label: { fontSize: 10, color: '#fff' },
+                                  data: [
+                                    { coord: [0, 0], value: '车辆', itemStyle: { color: '#10B981' } },
+                                    { coord: [plannedX[1], plannedY[1]], value: '机构', itemStyle: { color: '#FB8C00' } },
+                                    { coord: [100, 1], value: '处置', itemStyle: { color: '#0066CC' } }
+                                  ]
+                                }
+                              },
+                              {
+                                name: '实际轨迹',
+                                type: 'line',
+                                smooth: true,
+                                data: actualPoints.map(pt => [pt.x, pt.y]),
+                                lineStyle: {
+                                  color: isDeviation ? '#E53935' : '#43A047',
+                                  width: 3
+                                },
+                                itemStyle: {
+                                  color: isDeviation ? '#E53935' : '#43A047'
+                                },
+                                symbolSize: 8,
+                                areaStyle: {
+                                  color: isDeviation
+                                    ? 'rgba(229, 57, 53, 0.1)'
+                                    : 'rgba(67, 160, 71, 0.1)'
+                                },
+                                markPoint: {
+                                  symbol: 'diamond',
+                                  symbolSize: 28,
+                                  label: { fontSize: 9, color: '#fff' },
+                                  data: [
+                                    ...deviationMark,
+                                    ...delayMark,
+                                    ...(p.stage === 'arrived'
+                                      ? [{ coord: [100, 1], value: '完成', itemStyle: { color: '#10B981' } }]
+                                      : [])
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        })()}
+                        style={{ height: '100%', width: '100%' }}
+                      />
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-app-text-muted text-xs">
+                        选择订单以查看轨迹对比分析
                       </div>
                     )}
                   </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-4 h-1.5 bg-primary-500 rounded" style={{ borderTop: '1.5px dashed #0066CC' }} />
+                      <span className="text-app-text-muted">计划路线</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-4 h-1.5 bg-success-500 rounded" />
+                      <span className="text-app-text-muted">实际轨迹(正常)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-4 h-1.5 bg-danger-500 rounded" />
+                      <span className="text-app-text-muted">路线偏离</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded-full bg-warning-500" />
+                      <span className="text-app-text-muted">到达延误</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4 pt-2 border-t border-app-border">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        leftIcon={<SkipBack className="w-3 h-3" />}
+                        onClick={() => setPlaybackTime(Math.max(0, playbackTime - 10))}
+                      />
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        leftIcon={isPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                        onClick={() => setIsPlaying(!isPlaying)}
+                      >
+                        {isPlaying ? '暂停' : '回放'}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        leftIcon={<SkipForward className="w-3 h-3" />}
+                        onClick={() => setPlaybackTime(Math.min(100, playbackTime + 10))}
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-1 ml-auto">
+                      <span className="text-app-text-muted text-xs">倍速:</span>
+                      {[0.5, 1, 2, 4].map((speed) => (
+                        <Button
+                          key={speed}
+                          variant={playbackSpeed === speed ? 'primary' : 'secondary'}
+                          size="sm"
+                          onClick={() => setPlaybackSpeed(speed)}
+                          className="!px-2"
+                        >
+                          {speed}x
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {selectedOrder && selectedOrder.route && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-app-border text-[11px]">
+                      <div className="p-2 bg-app-bg rounded">
+                        <p className="text-app-text-muted mb-0.5">计划总时长</p>
+                        <p className="text-app-text font-medium">
+                          {formatDuration(selectedOrder.route.totalEstimatedTime)}
+                        </p>
+                      </div>
+                      <div className="p-2 bg-app-bg rounded">
+                        <p className="text-app-text-muted mb-0.5">剩余时间</p>
+                        <p className={twMerge(
+                          'font-medium',
+                          (() => {
+                            const p = getVehicleProgressInfo(selectedVehicle || {} as Vehicle, selectedOrder)
+                            const expected = selectedOrder.route.totalEstimatedTime
+                            if (selectedOrder.departureTime) {
+                              const elapsed = (Date.now() - new Date(selectedOrder.departureTime).getTime()) / 60000
+                              const delay = elapsed - (expected - p.remainingMinutes)
+                              if (delay > 15) return 'text-danger-400'
+                              if (delay > 5) return 'text-warning-400'
+                            }
+                            return 'text-app-text'
+                          })()
+                        )}>
+                          {(() => {
+                            const p = getVehicleProgressInfo(selectedVehicle || {} as Vehicle, selectedOrder)
+                            return formatDuration(p.remainingMinutes)
+                          })()}
+                        </p>
+                      </div>
+                      <div className="p-2 bg-app-bg rounded">
+                        <p className="text-app-text-muted mb-0.5">当前阶段</p>
+                        <p className="text-app-text font-medium">
+                          {(() => {
+                            const p = getVehicleProgressInfo(selectedVehicle || {} as Vehicle, selectedOrder)
+                            return p.stageLabel
+                          })()}
+                        </p>
+                      </div>
+                      <div className="p-2 bg-app-bg rounded">
+                        <p className="text-app-text-muted mb-0.5">延误检测</p>
+                        <p className={twMerge('font-medium', (() => {
+                          const p = getVehicleProgressInfo(selectedVehicle || {} as Vehicle, selectedOrder)
+                          const expected = selectedOrder.route!.totalEstimatedTime
+                          if (!selectedOrder.departureTime) return 'text-app-text-muted'
+                          const elapsed = (Date.now() - new Date(selectedOrder.departureTime).getTime()) / 60000
+                          const expectedElapsed = expected - p.remainingMinutes
+                          const delay = elapsed - expectedElapsed
+                          if (delay > 15) return 'text-danger-400'
+                          if (delay > 5) return 'text-warning-400'
+                          return 'text-success-400'
+                        })())}>
+                          {(() => {
+                            const p = getVehicleProgressInfo(selectedVehicle || {} as Vehicle, selectedOrder)
+                            const expected = selectedOrder.route!.totalEstimatedTime
+                            if (!selectedOrder.departureTime) return '未出发'
+                            const elapsed = (Date.now() - new Date(selectedOrder.departureTime).getTime()) / 60000
+                            const expectedElapsed = expected - p.remainingMinutes
+                            const delay = elapsed - expectedElapsed
+                            if (delay > 5) return `延误 ${Math.round(delay)} 分钟`
+                            return '正常'
+                          })()}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </CardBody>
               </Card>
             </CardBody>
